@@ -1,0 +1,58 @@
+# Node.js / React frontend files (not needed in backend container)
+node_modules/
+package.json
+package-lock.json
+public/
+src/
+build/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Git
+.git/
+.gitignore
+
+# Documentation and misc
+*.md
+docs/
+*.txt
+!requirements.txt
+
+# Test files and images
+*.png
+*.jpg
+*.jpeg
+!best.pt
+
+# Environment files
+.env
+.env.local
+.env.development
+.env.production
+
+# Railway and deployment files
+railway.toml
+nixpacks.toml
+.railwayignore
+vercel.json
+
+# Logs
+*.log

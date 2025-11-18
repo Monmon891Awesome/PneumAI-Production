@@ -1,0 +1,26 @@
+/* Icon sizes */
+.icon {
+  height: 1.5rem;
+  width: 1.5rem;
+}
+
+.icon-sm {
+  height: 1rem;
+  width: 1rem;
+}
+
+/* Special icon sizes */
+.header .logo-container .icon {
+  height: 2rem;
+  width: 2rem;
+}
+
+.feature-icon-container .icon {
+  height: 2rem;
+  width: 2rem;
+}
+
+.support-icon-container .icon {
+  height: 1.5rem;
+  width: 1.5rem;
+}

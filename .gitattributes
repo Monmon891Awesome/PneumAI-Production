@@ -1,0 +1,2 @@
+# Model files are committed directly (< 100 MB, no LFS needed)
+# *.pt filter=lfs diff=lfs merge=lfs -text
