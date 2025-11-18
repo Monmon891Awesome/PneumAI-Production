@@ -35,12 +35,13 @@ ENV/
 docs/
 *.txt
 !requirements.txt
+!requirements-onnx.txt
 
 # Test files and images
 *.png
 *.jpg
 *.jpeg
-!best.pt
+!best.onnx
 
 # Environment files
 .env
