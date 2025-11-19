@@ -64,6 +64,20 @@ app.mount(
 
 logger.info(f"✅ Static files mounted at /uploads → {settings.UPLOAD_DIR}")
 
+# Mount React frontend (if build directory exists)
+import os
+from pathlib import Path
+
+build_dir = Path("build")
+if build_dir.exists() and build_dir.is_dir():
+    # Serve React static files (CSS, JS, images)
+    app.mount(
+        "/static",
+        StaticFiles(directory=str(build_dir / "static")),
+        name="static"
+    )
+    logger.info(f"✅ Frontend static files mounted at /static → {build_dir / 'static'}")
+
 # ============================================================
 # STARTUP & SHUTDOWN EVENTS
 # ============================================================
@@ -114,24 +128,50 @@ from app.routers import health, auth, patients, doctors, scans, appointments, me
 # ROOT ENDPOINT
 # ============================================================
 
-@app.get("/")
-async def root():
-    """Root endpoint - API information"""
-    return {
-        "message": "PneumAI Unified Backend API",
-        "version": "1.0.0",
-        "environment": settings.ENVIRONMENT,
-        "docs": "/docs" if settings.DEBUG else "Documentation disabled in production",
-        "endpoints": {
-            "health": "/health",
-            "auth": "/api/v1/auth",
-            "patients": "/api/v1/patients",
-            "doctors": "/api/v1/doctors",
-            "scans": "/api/v1/scans",
-            "appointments": "/api/v1/appointments",
-            "messages": "/api/v1/messages"
+# If frontend build exists, serve it at root
+# Otherwise, show API information
+build_dir = Path("build")
+if build_dir.exists() and (build_dir / "index.html").exists():
+    from fastapi.responses import FileResponse
+
+    @app.get("/")
+    async def serve_frontend():
+        """Serve React frontend"""
+        return FileResponse(str(build_dir / "index.html"))
+
+    # Catch-all route for React Router (must be last)
+    @app.get("/{full_path:path}")
+    async def catch_all(full_path: str):
+        """Catch-all route for React Router - serves index.html for all non-API routes"""
+        # Skip API routes and static files
+        if full_path.startswith(("api/", "docs", "redoc", "health", "uploads/")):
+            return {"error": "Not found"}, 404
+
+        # Serve index.html for frontend routes
+        return FileResponse(str(build_dir / "index.html"))
+
+    logger.info("✅ Frontend serving enabled - React app will be served at /")
+else:
+    @app.get("/")
+    async def root():
+        """Root endpoint - API information"""
+        return {
+            "message": "PneumAI Unified Backend API",
+            "version": "1.0.0",
+            "environment": settings.ENVIRONMENT,
+            "docs": "/docs" if settings.DEBUG else "Documentation disabled in production",
+            "endpoints": {
+                "health": "/health",
+                "auth": "/api/v1/auth",
+                "patients": "/api/v1/patients",
+                "doctors": "/api/v1/doctors",
+                "scans": "/api/v1/scans",
+                "appointments": "/api/v1/appointments",
+                "messages": "/api/v1/messages"
+            }
         }
-    }
+
+    logger.info("ℹ️  Frontend build not found - API-only mode")
 
 
 # ============================================================
