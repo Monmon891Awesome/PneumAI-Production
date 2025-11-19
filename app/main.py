@@ -78,6 +78,15 @@ if build_dir.exists() and build_dir.is_dir():
     )
     logger.info(f"✅ Frontend static files mounted at /static → {build_dir / 'static'}")
 
+    # Mount assets directory (for logos, etc.)
+    if (build_dir / "assets").exists():
+        app.mount(
+            "/assets",
+            StaticFiles(directory=str(build_dir / "assets")),
+            name="assets"
+        )
+        logger.info(f"✅ Frontend assets mounted at /assets → {build_dir / 'assets'}")
+
 # ============================================================
 # STARTUP & SHUTDOWN EVENTS
 # ============================================================
