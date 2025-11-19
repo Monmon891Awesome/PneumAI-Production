@@ -45,7 +45,7 @@ docs/
 !best.onnx
 
 # Environment files
-.env
+# .env
 .env.local
 .env.development
 .env.production

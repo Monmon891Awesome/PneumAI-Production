@@ -224,149 +224,162 @@ def create_scan(scan_data: Dict, detections: List[Dict]) -> str:
     """Create a new scan with detections"""
     scan_id = scan_data['scanId']
 
-    # Insert scan
-    scan_query = """
-        INSERT INTO scans (
-            id, patient_id, status, upload_time, processing_time,
-            detected, confidence, risk_level, top_class,
-            file_size, image_format, image_width, image_height,
-            original_image_path, annotated_image_path
-        ) VALUES (
-            %(scanId)s, %(patientId)s, %(status)s, %(uploadTime)s, %(processingTime)s,
-            %(detected)s, %(confidence)s, %(riskLevel)s, %(topClass)s,
-            %(fileSize)s, %(format)s, %(width)s, %(height)s,
-            %(originalPath)s, %(annotatedPath)s
-        )
-    """
-
-    params = {
-        'scanId': scan_id,
-        'patientId': scan_data.get('patientId', 'unknown'),
-        'status': scan_data['status'],
-        'uploadTime': scan_data['uploadTime'],
-        'processingTime': scan_data['processingTime'],
+    # Prepare metadata and analysis results
+    ai_analysis_result = {
         'detected': scan_data['results']['detected'],
         'confidence': scan_data['results']['confidence'],
         'riskLevel': scan_data['results']['riskLevel'],
         'topClass': scan_data['results']['topClass'],
+        'processingTime': scan_data['processingTime']
+    }
+
+    metadata = scan_data.get('metadata', {})
+    metadata['processing_time'] = scan_data['processingTime']
+
+    # Insert scan
+    # Mapping to ct_scans table
+    scan_query = """
+        INSERT INTO ct_scans (
+            scan_id, patient_id, status, upload_time,
+            file_url, file_name, file_size_bytes, file_type,
+            image_width, image_height,
+            ai_analysis_result, ai_confidence_score,
+            nodules_detected, risk_level,
+            annotated_image_url, metadata
+        ) VALUES (
+            %(scanId)s, %(patientId)s, %(status)s, %(uploadTime)s,
+            %(originalPath)s, %(fileName)s, %(fileSize)s, %(format)s,
+            %(width)s, %(height)s,
+            %(aiAnalysisResult)s, %(confidence)s,
+            %(detected)s, %(riskLevel)s,
+            %(annotatedPath)s, %(metadata)s
+        )
+    """
+
+    import json
+
+    params = {
+        'scanId': scan_id,
+        'patientId': None, # scan_data.get('patientId') if scan_data.get('patientId') != 'unknown' else None, # Handle unknown patient
+        'status': scan_data['status'],
+        'uploadTime': scan_data['uploadTime'],
+        'originalPath': scan_data.get('originalPath', ''),
+        'fileName': f"scan_{scan_id}.{scan_data['metadata']['format']}", # Construct filename
         'fileSize': scan_data['metadata']['fileSize'],
         'format': scan_data['metadata']['format'],
         'width': scan_data['metadata']['imageSize']['width'],
         'height': scan_data['metadata']['imageSize']['height'],
-        'originalPath': scan_data.get('originalPath', ''),
-        'annotatedPath': scan_data.get('annotatedPath', '')
+        'aiAnalysisResult': json.dumps(ai_analysis_result),
+        'confidence': scan_data['results']['confidence'],
+        'detected': scan_data['results']['detected'],
+        'riskLevel': scan_data['results']['riskLevel'],
+        'annotatedPath': scan_data.get('annotatedPath', ''),
+        'metadata': json.dumps(metadata)
     }
+    
+    # Handle patient_id - if 'unknown' or None, insert NULL
+    if scan_data.get('patientId') and scan_data.get('patientId') != 'unknown':
+        # Verify patient exists first? Or let FK fail? 
+        # For now, if it's a valid integer string, use it, else None
+        try:
+            params['patientId'] = int(scan_data['patientId'])
+        except:
+            params['patientId'] = None
+    else:
+        params['patientId'] = None
 
     Database.execute(scan_query, params, fetch="none")
 
-    # Insert detections
+    # Insert detections (if we had a detections table, but schema doesn't seem to have a separate detections table linked to ct_scans in the same way, 
+    # wait, schema has NO detections table! It puts results in ai_analysis_result JSONB)
+    # The schema provided in 01_schema.sql does NOT have a 'detections' table. 
+    # It has 'ai_analysis_result JSONB'.
+    # So we don't need to insert into a detections table.
+    # We already put detections in ai_analysis_result if we include them.
+    
+    # Let's update ai_analysis_result to include the full detections list
     if detections:
-        detection_query = """
-            INSERT INTO detections (
-                scan_id, class_name, confidence,
-                bbox_x, bbox_y, bbox_width, bbox_height,
-                size_mm, shape, density
-            ) VALUES (
-                %(scan_id)s, %(class)s, %(confidence)s,
-                %(x)s, %(y)s, %(width)s, %(height)s,
-                %(size_mm)s, %(shape)s, %(density)s
-            )
-        """
-
-        for det in detections:
-            det_params = {
-                'scan_id': scan_id,
-                'class': det['class'],
-                'confidence': det['confidence'],
-                'x': det['boundingBox']['x'],
-                'y': det['boundingBox']['y'],
-                'width': det['boundingBox']['width'],
-                'height': det['boundingBox']['height'],
-                'size_mm': det['characteristics']['size_mm'],
-                'shape': det['characteristics']['shape'],
-                'density': det['characteristics']['density']
-            }
-            Database.execute(detection_query, det_params, fetch="none")
+        ai_analysis_result['detections'] = detections
+        # Update the row with the full JSON
+        update_query = "UPDATE ct_scans SET ai_analysis_result = %s WHERE scan_id = %s"
+        Database.execute(update_query, (json.dumps(ai_analysis_result), scan_id), fetch="none")
 
     return scan_id
 
 
 def get_scan(scan_id: str) -> Optional[Dict]:
     """Get scan by ID with detections"""
-    scan_query = "SELECT * FROM scans WHERE id = %s"
+    scan_query = "SELECT * FROM ct_scans WHERE scan_id = %s"
     scan = Database.execute(scan_query, (scan_id,), fetch="one")
 
     if not scan:
         return None
 
-    # Get detections
-    detections_query = "SELECT * FROM detections WHERE scan_id = %s"
-    detections = Database.execute(detections_query, (scan_id,), fetch="all")
+    # Parse JSONB fields if they are strings (psycopg2 usually handles this, but just in case)
+    ai_result = scan.get('ai_analysis_result', {})
+    if isinstance(ai_result, str):
+        import json
+        try:
+            ai_result = json.loads(ai_result)
+        except:
+            ai_result = {}
+            
+    # Extract detections from JSONB
+    detections = ai_result.get('detections', [])
 
     # Format response
     upload_time = scan['upload_time']
     if isinstance(upload_time, str):
         upload_time_str = upload_time
     else:
-        upload_time_str = upload_time.isoformat()
+        upload_time_str = upload_time.isoformat() if upload_time else None
 
     return {
-        'scanId': scan['id'],
+        'scanId': scan['scan_id'],
         'patientId': scan.get('patient_id'),
         'status': scan['status'],
         'uploadTime': upload_time_str,
-        'processingTime': scan['processing_time'],
+        'processingTime': ai_result.get('processingTime', 0),
         'results': {
-            'detected': scan['detected'],
-            'confidence': scan['confidence'],
+            'detected': scan['nodules_detected'],
+            'confidence': float(scan['ai_confidence_score']) if scan['ai_confidence_score'] else 0.0,
             'riskLevel': scan['risk_level'],
-            'topClass': scan['top_class'],
-            'detections': [
-                {
-                    'class': d['class_name'],
-                    'confidence': d['confidence'],
-                    'boundingBox': {
-                        'x': d['bbox_x'],
-                        'y': d['bbox_y'],
-                        'width': d['bbox_width'],
-                        'height': d['bbox_height']
-                    },
-                    'characteristics': {
-                        'size_mm': d['size_mm'],
-                        'shape': d['shape'],
-                        'density': d['density']
-                    }
-                }
-                for d in detections
-            ]
+            'topClass': ai_result.get('topClass', 'unknown'),
+            'detections': detections
         },
         'metadata': {
             'imageSize': {
                 'width': scan['image_width'],
                 'height': scan['image_height']
             },
-            'fileSize': scan['file_size'],
-            'format': scan['image_format']
+            'fileSize': scan['file_size_bytes'],
+            'format': scan['file_type']
         },
-        'originalImagePath': scan.get('original_image_path'),
-        'annotatedImagePath': scan.get('annotated_image_path')
+        'originalImagePath': scan.get('file_url'),
+        'annotatedImagePath': scan.get('annotated_image_url')
     }
 
 
 def get_patient_scans(patient_id: str) -> List[Dict]:
     """Get all scans for a patient"""
     query = """
-        SELECT id, upload_time, status, risk_level, confidence, detected
-        FROM scans
+        SELECT scan_id as id, upload_time, status, risk_level, ai_confidence_score as confidence, nodules_detected as detected
+        FROM ct_scans
         WHERE patient_id = %s
         ORDER BY upload_time DESC
     """
-    return Database.execute(query, (patient_id,), fetch="all")
+    # Note: patient_id in database is integer, but we might be passing a string. 
+    # If it's a string that parses to int, fine. If not, this might fail or return empty.
+    try:
+        pid = int(patient_id)
+        return Database.execute(query, (pid,), fetch="all")
+    except ValueError:
+        return []
 
 
 def delete_scan(scan_id: str) -> bool:
-    """Delete a scan (cascade deletes detections and comments)"""
-    query = "DELETE FROM scans WHERE id = %s"
+    """Delete a scan (cascade deletes comments)"""
+    query = "DELETE FROM ct_scans WHERE scan_id = %s"
     Database.execute(query, (scan_id,), fetch="none")
     return True
 

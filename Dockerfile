@@ -15,6 +15,7 @@ RUN npm install
 COPY public/ ./public/
 COPY src/ ./src/
 COPY tailwind.config.js postcss.config.js ./
+COPY .env ./
 
 # Build React application
 RUN npm run build
