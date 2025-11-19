@@ -3,7 +3,7 @@ Scans Router for PneumAI
 CT Scan upload, analysis, and comment management
 """
 
-from fastapi import APIRouter, File, UploadFile, HTTPException, Form
+from fastapi import APIRouter, File, UploadFile, HTTPException, Form, Request
 from fastapi.responses import Response
 from typing import Optional, List
 from datetime import datetime
@@ -44,7 +44,8 @@ router = APIRouter()
 @router.post("/analyze", response_model=ScanResponse)
 async def analyze_scan(
     scan: UploadFile = File(...),
-    patientId: Optional[str] = Form(None)
+    patientId: Optional[str] = Form(None),
+    request: Request = None
 ):
     """
     Upload and analyze CT scan image with YOLOv12
@@ -125,7 +126,8 @@ async def analyze_scan(
         logger.info(f"✅ Scan completed: {scan_id} - Risk: {results['riskLevel']} ({processing_time:.2f}s)")
 
         # Construct response with image URLs
-        base_url = f"http://localhost:{settings.PORT}"  # In production, use actual domain
+        # Construct response with image URLs
+        base_url = str(request.base_url).rstrip('/') if request else f"http://localhost:{settings.PORT}"
         image_urls = file_manager.get_scan_image_urls(scan_id, base_url)
 
         return ScanResponse(
@@ -161,7 +163,7 @@ async def analyze_scan(
 
 
 @router.get("/{scan_id}")
-async def get_scan_by_id(scan_id: str):
+async def get_scan_by_id(scan_id: str, request: Request):
     """
     Get scan information by ID
 
@@ -174,7 +176,8 @@ async def get_scan_by_id(scan_id: str):
             raise HTTPException(status_code=404, detail=f"Scan not found: {scan_id}")
 
         # Add image URLs
-        base_url = f"http://localhost:{settings.PORT}"
+        # Add image URLs
+        base_url = str(request.base_url).rstrip('/')
         image_urls = file_manager.get_scan_image_urls(scan_id, base_url)
 
         scan['results']['imageUrl'] = image_urls['imageUrl']
