@@ -9,7 +9,7 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 
 # Install dependencies
-RUN npm ci
+RUN npm install
 
 # Copy frontend source code
 COPY public/ ./public/
@@ -34,13 +34,13 @@ ENV PYTHONUNBUFFERED=1 \
 # Install system dependencies and clean up in single layer
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-        libglib2.0-0 \
-        libsm6 \
-        libxext6 \
-        libgomp1 \
-        libgl1 \
-        postgresql-client \
-        curl && \
+    libglib2.0-0 \
+    libsm6 \
+    libxext6 \
+    libgomp1 \
+    libgl1 \
+    postgresql-client \
+    curl && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
