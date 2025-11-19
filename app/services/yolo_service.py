@@ -60,8 +60,18 @@ class YOLOService:
                 custom_meta = metadata.custom_metadata_map
                 if 'names' in custom_meta:
                     # Parse names from metadata (format: "{0: 'class1', 1: 'class2', ...}")
-                    import json
-                    self.class_names = json.loads(custom_meta['names'].replace("'", '"'))
+                    try:
+                        import json
+                        # Try standard JSON first
+                        self.class_names = json.loads(custom_meta['names'])
+                    except:
+                        try:
+                            # Fallback for Python dict string format (common in YOLO exports)
+                            import ast
+                            self.class_names = ast.literal_eval(custom_meta['names'])
+                        except Exception as e:
+                            logger.warning(f"Could not parse class names from metadata: {e}")
+                            self.class_names = {}
 
             # Fallback class names if not in metadata
             if not self.class_names:
