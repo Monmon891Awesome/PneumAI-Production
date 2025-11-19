@@ -1,6 +1,27 @@
-# Optimized Docker image for PneumAI FastAPI Backend
-# Target: < 2 GB final image size for Railway free tier
+# ==========================================
+# Stage 1: Frontend Builder
+# ==========================================
+FROM node:18-alpine as builder
 
+WORKDIR /app
+
+# Copy package files
+COPY package.json package-lock.json ./
+
+# Install dependencies
+RUN npm ci
+
+# Copy frontend source code
+COPY public/ ./public/
+COPY src/ ./src/
+COPY tailwind.config.js postcss.config.js ./
+
+# Build React application
+RUN npm run build
+
+# ==========================================
+# Stage 2: Backend Runtime
+# ==========================================
 FROM python:3.11-slim
 
 # Set environment variables
@@ -37,6 +58,9 @@ COPY app/ ./app/
 
 # Copy YOLO ONNX model (11.5 MB - lightweight inference)
 COPY best.onnx ./best.onnx
+
+# Copy Frontend Build from Stage 1
+COPY --from=builder /app/build ./build
 
 # Create upload directories
 RUN mkdir -p /tmp/uploads/originals /tmp/uploads/annotated /tmp/uploads/thumbnails && \

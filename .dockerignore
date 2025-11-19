@@ -1,9 +1,10 @@
 # Node.js / React frontend files (not needed in backend container)
+# Node.js / React frontend files (not needed in backend container)
 node_modules/
-package.json
-package-lock.json
-public/
-src/
+# package.json - Needed for build
+# package-lock.json - Needed for build
+# public/ - Needed for build
+# src/ - Needed for build
 build/
 
 # Python cache
