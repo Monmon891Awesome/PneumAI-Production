@@ -270,9 +270,64 @@ export const doctorAPI = {
   },
 };
 
+// ============================================================================
+// SCAN API
+// ============================================================================
+
+export const scanAPI = {
+  // Get all scans (for doctor/admin)
+  getAll: async () => {
+    // Note: Backend endpoint for "all scans" might need to be created or we iterate patients
+    // For now, assuming an endpoint exists or we might need to adjust strategy
+    const response = await fetch(`${API_BASE_URL}/api/v1/scans`);
+
+    if (!response.ok) {
+      throw new Error('Failed to fetch scans');
+    }
+
+    return response.json();
+  },
+
+  // Get scans for a patient
+  getByPatient: async (patientId) => {
+    const response = await fetch(`${API_BASE_URL}/api/v1/scans/patient/${patientId}/scans`);
+
+    if (!response.ok) {
+      throw new Error('Failed to fetch patient scans');
+    }
+
+    return response.json();
+  },
+
+  // Get scan by ID
+  getById: async (scanId) => {
+    const response = await fetch(`${API_BASE_URL}/api/v1/scans/${scanId}`);
+
+    if (!response.ok) {
+      throw new Error('Failed to fetch scan');
+    }
+
+    return response.json();
+  },
+
+  // Delete scan
+  delete: async (scanId) => {
+    const response = await fetch(`${API_BASE_URL}/api/v1/scans/${scanId}`, {
+      method: 'DELETE',
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to delete scan');
+    }
+
+    return response.json();
+  }
+};
+
 export default {
   appointments: appointmentAPI,
   messages: messageAPI,
   patients: patientAPI,
   doctors: doctorAPI,
+  scans: scanAPI,
 };

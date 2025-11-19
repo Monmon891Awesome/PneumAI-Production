@@ -26,6 +26,7 @@ from app.database import (
     create_scan,
     get_scan,
     get_patient_scans,
+    get_all_scans,
     delete_scan,
     create_scan_comment,
     get_scan_comments,
@@ -205,6 +206,21 @@ async def get_scans_for_patient(patient_id: str):
     except Exception as e:
         logger.error(f"Error fetching scans for patient {patient_id}: {e}")
         raise HTTPException(status_code=500, detail="Failed to fetch patient scans")
+
+
+@router.get("")
+async def get_all_scans_endpoint():
+    """
+    Get all scans (for doctors/admins)
+    
+    Returns list of scan summaries
+    """
+    try:
+        scans = get_all_scans()
+        return {"scans": scans, "count": len(scans)}
+    except Exception as e:
+        logger.error(f"Error fetching all scans: {e}")
+        raise HTTPException(status_code=500, detail="Failed to fetch scans")
 
 
 @router.delete("/{scan_id}", response_model=MessageOnlyResponse)

@@ -50,6 +50,7 @@ import {
   savePatientProfile,
   getScanCommentCount
 } from './utils/unifiedDataManager';
+import { scanAPI } from './services/apiService';
 
 const PatientDashboard = ({ username, onLogout }) => {
   const [activeTab, setActiveTab] = useState('home');
@@ -59,10 +60,7 @@ const PatientDashboard = ({ username, onLogout }) => {
 
   // Load persistent data using unified data manager
   const [patientProfile, setPatientProfile] = useState(getCurrentPatientProfile());
-  const [scanHistory, setScanHistory] = useState(() => {
-    const profile = getCurrentPatientProfile();
-    return profile ? getScansByPatientId(profile.id) : [];
-  });
+  const [scanHistory, setScanHistory] = useState([]); // Start empty, load from API
   const [appointments, setAppointments] = useState(() => {
     const profile = getCurrentPatientProfile();
     return profile ? getAppointmentsByPatient(profile.id) : [];
@@ -107,24 +105,43 @@ const PatientDashboard = ({ username, onLogout }) => {
 
   // Load/refresh patient profile and data on mount
   useEffect(() => {
-    const profile = getCurrentPatientProfile();
-    if (profile) {
-      // Update profile state
-      setPatientProfile(profile);
+    const loadData = async () => {
+      const profile = getCurrentPatientProfile();
+      if (profile) {
+        // Update profile state
+        setPatientProfile(profile);
 
-      // Load scan history
-      const history = getScansByPatientId(profile.id);
-      setScanHistory(history);
-      if (history.length > 0) {
-        setCurrentScanResult(history[0]);
+        // Load scan history from API
+        try {
+          const response = await scanAPI.getByPatient(profile.id);
+          // Assuming response structure matches what we need or is { scans: [...] }
+          // Adjust based on actual API response. For now assuming array or { scans: [] }
+          const history = Array.isArray(response) ? response : (response.scans || []);
+          setScanHistory(history);
+
+          if (history.length > 0) {
+            // Only set if not already set or logic requires it
+            // setCurrentScanResult(history[0]); 
+          }
+        } catch (error) {
+          console.error("Failed to load scans from API", error);
+          // Fallback to local if API fails (optional, maybe remove later)
+          // const history = getScansByPatientId(profile.id);
+          // setScanHistory(history);
+        }
+
+        // Fallback to local for now if API fails or while migrating
+        // const history = getScansByPatientId(profile.id);
+        // setScanHistory(history);
+
+        // Load appointments
+        setAppointments(getAppointmentsByPatient(profile.id));
+
+        // Load messages
+        setMessages(getMessagesByUser(profile.id));
       }
-
-      // Load appointments
-      setAppointments(getAppointmentsByPatient(profile.id));
-
-      // Load messages
-      setMessages(getMessagesByUser(profile.id));
-    }
+    };
+    loadData();
   }, []);
 
   // Refresh dashboard stats when scan history changes
@@ -152,7 +169,7 @@ const PatientDashboard = ({ username, onLogout }) => {
   // No need for API call - using localStorage directly
 
   // Handle scan upload completion
-  const handleScanComplete = (result) => {
+  const handleScanComplete = async (result) => {
     setCurrentScanResult(result);
 
     // Get or create patient profile
@@ -165,27 +182,21 @@ const PatientDashboard = ({ username, onLogout }) => {
 
     console.log('📋 Patient profile:', profile.id, profile.name);
 
-    // Enrich scan with patient ID before saving
-    const enrichedResult = {
-      ...result,
-      patientId: profile.id
-    };
+    // The backend already saved the scan. We just need to refresh the list.
+    try {
+      console.log('✅ Scan uploaded and processed by backend');
+      setUploadSuccess(true);
 
-    console.log('💾 Saving scan with patientId:', enrichedResult.patientId);
+      // Trigger a refresh of the scan list
+      const response = await scanAPI.getByPatient(profile.id);
+      const updatedHistory = Array.isArray(response) ? response : (response.scans || []);
+      setScanHistory(updatedHistory);
+      console.log('📊 Scan history updated from API:', updatedHistory.length, 'scans');
 
-    // Save to unified storage
-    const saved = saveScan(enrichedResult);
-    console.log('✅ Scan saved:', saved);
+    } catch (error) {
+      console.error('Error refreshing scans:', error);
+    }
 
-    // Refresh scan history immediately
-    const updatedHistory = getScansByPatientId(profile.id);
-    setScanHistory(updatedHistory);
-    console.log('📊 Scan history updated:', updatedHistory.length, 'scans');
-
-    // Refresh dashboard stats
-    setDashboardStats(getDashboardStats());
-
-    setUploadSuccess(true);
     // Auto-switch to results view
     setTimeout(() => setActiveTab('results'), 500);
   };
@@ -410,12 +421,12 @@ const PatientDashboard = ({ username, onLogout }) => {
       }, 2000);
     }, 1500);
   };
-  
+
   // Toggle mobile sidebar
   const toggleMobileSidebar = () => {
     setShowMobileSidebar(!showMobileSidebar);
   };
-  
+
   return (
     <div className="dashboard-layout">
       {/* Decorative lung backgrounds */}
@@ -430,7 +441,7 @@ const PatientDashboard = ({ username, onLogout }) => {
       >
         <Menu size={24} />
       </button>
-      
+
       {/* Sidebar */}
       <aside className={`dashboard-sidebar ${showMobileSidebar ? 'show' : ''}`}>
         <div className="sidebar-header">
@@ -444,7 +455,7 @@ const PatientDashboard = ({ username, onLogout }) => {
             <X size={20} />
           </button>
         </div>
-        
+
         <div className="user-profile">
           <div className="user-avatar">
             <User className="avatar-icon" />
@@ -454,9 +465,9 @@ const PatientDashboard = ({ username, onLogout }) => {
             <span className="username-value">{patientProfile?.name || username}</span>
           </div>
         </div>
-        
+
         <div className="sidebar-menu">
-          <button 
+          <button
             className={`sidebar-item ${activeTab === 'home' ? 'active' : ''}`}
             onClick={() => setActiveTab('home')}
             type="button"
@@ -464,7 +475,7 @@ const PatientDashboard = ({ username, onLogout }) => {
             <Home className="sidebar-icon" />
             <span>Home</span>
           </button>
-          <button 
+          <button
             className={`sidebar-item ${activeTab === 'appointments' ? 'active' : ''}`}
             onClick={() => setActiveTab('appointments')}
             type="button"
@@ -496,7 +507,7 @@ const PatientDashboard = ({ username, onLogout }) => {
             <Layers className="sidebar-icon" />
             <span>CT Scan Platform</span>
           </button>
-          <button 
+          <button
             className={`sidebar-item ${activeTab === 'history' ? 'active' : ''}`}
             onClick={() => setActiveTab('history')}
             type="button"
@@ -504,7 +515,7 @@ const PatientDashboard = ({ username, onLogout }) => {
             <Clock className="sidebar-icon" />
             <span>Recent Uploads</span>
           </button>
-          <button 
+          <button
             className={`sidebar-item ${activeTab === 'contact' ? 'active' : ''}`}
             onClick={() => setActiveTab('contact')}
             type="button"
@@ -513,7 +524,7 @@ const PatientDashboard = ({ username, onLogout }) => {
             <span>Contact Doctor</span>
           </button>
         </div>
-        
+
         <div className="sidebar-footer">
           <button className="logout-button" onClick={onLogout} type="button">
             <LogOut className="sidebar-icon" />
@@ -521,7 +532,7 @@ const PatientDashboard = ({ username, onLogout }) => {
           </button>
         </div>
       </aside>
-      
+
       {/* Main Content */}
       <main className="dashboard-content-wrapper">
         {/* Main Content Header */}
@@ -535,16 +546,16 @@ const PatientDashboard = ({ username, onLogout }) => {
             {activeTab === 'history' && 'Recent Uploads'}
             {activeTab === 'contact' && 'Contact Your Doctor'}
           </h1>
-          
+
           <div className="header-actions">
             <div className="search-container">
               <Search size={18} className="search-icon" />
               <input type="text" placeholder="Search..." className="search-input" />
             </div>
-            
+
             {activeTab === 'scans' && (
-              <button 
-                type="button" 
+              <button
+                type="button"
                 className="action-button"
                 onClick={() => setShowUploadModal(true)}
               >
@@ -553,7 +564,7 @@ const PatientDashboard = ({ username, onLogout }) => {
             )}
           </div>
         </div>
-        
+
         {/* Main Content Body */}
         <div className="content-body">
           {activeTab === 'home' && (
@@ -639,8 +650,8 @@ const PatientDashboard = ({ username, onLogout }) => {
                     ) : (
                       <p className="no-data-message">No upcoming appointments scheduled.</p>
                     )}
-                    <button 
-                      className="action-button" 
+                    <button
+                      className="action-button"
                       onClick={() => setActiveTab('appointments')}
                       type="button"
                     >
@@ -648,7 +659,7 @@ const PatientDashboard = ({ username, onLogout }) => {
                     </button>
                   </div>
                 </div>
-                
+
                 <div className="dashboard-card">
                   <h3>Recent Uploads</h3>
                   <div className="card-content">
@@ -670,7 +681,7 @@ const PatientDashboard = ({ username, onLogout }) => {
                     ) : (
                       <p className="no-data-message">No recent uploads.</p>
                     )}
-                    <button 
+                    <button
                       className="action-button"
                       onClick={() => setShowUploadModal(true)}
                       type="button"
@@ -682,7 +693,7 @@ const PatientDashboard = ({ username, onLogout }) => {
               </div>
             </>
           )}
-          
+
           {activeTab === 'results' && (
             <>
               {currentScanResult ? (
@@ -701,15 +712,15 @@ const PatientDashboard = ({ username, onLogout }) => {
           )}
 
           {activeTab === 'platform' && (
-            <SimplifiedPatientPlatform/>
+            <SimplifiedPatientPlatform />
           )}
-          
+
           {activeTab === 'appointments' && (
             <>
               <div className="page-subheader">
                 <p>Schedule an appointment with one of our specialists.</p>
               </div>
-              
+
               <div className="doctors-grid">
                 {(availableDoctors || []).map(doctor => (
                   <div className="doctor-card" key={doctor.id}>
@@ -731,7 +742,7 @@ const PatientDashboard = ({ username, onLogout }) => {
                   </div>
                 ))}
               </div>
-              
+
               <div className="dashboard-card full-width">
                 <h3>Your Scheduled Appointments</h3>
                 <div className="appointments-list">
@@ -776,7 +787,7 @@ const PatientDashboard = ({ username, onLogout }) => {
               </div>
             </>
           )}
-          
+
           {activeTab === 'scans' && (
             <>
               <div className="page-subheader">
@@ -811,8 +822,8 @@ const PatientDashboard = ({ username, onLogout }) => {
                             <span className="probability-label">Analysis Status</span>
                             <span className="probability-value" style={{
                               color: currentScanResult.results.riskLevel === 'high' ? '#ef4444' :
-                                     currentScanResult.results.riskLevel === 'medium' ? '#f97316' :
-                                     currentScanResult.results.riskLevel === 'low' ? '#eab308' : '#22c55e'
+                                currentScanResult.results.riskLevel === 'medium' ? '#f97316' :
+                                  currentScanResult.results.riskLevel === 'low' ? '#eab308' : '#22c55e'
                             }}>
                               Complete
                             </span>
@@ -820,9 +831,9 @@ const PatientDashboard = ({ username, onLogout }) => {
                           <div className="risk-badge-container">
                             <span className={`risk-badge-large risk-${currentScanResult.results.riskLevel}`}>
                               {currentScanResult.results.riskLevel === 'none' ? 'REVIEWED' :
-                               currentScanResult.results.riskLevel === 'low' ? 'ATTENTION SUGGESTED' :
-                               currentScanResult.results.riskLevel === 'medium' ? 'REVIEW RECOMMENDED' :
-                               'PROFESSIONAL REVIEW NEEDED'}
+                                currentScanResult.results.riskLevel === 'low' ? 'ATTENTION SUGGESTED' :
+                                  currentScanResult.results.riskLevel === 'medium' ? 'REVIEW RECOMMENDED' :
+                                    'PROFESSIONAL REVIEW NEEDED'}
                             </span>
                           </div>
                         </div>
@@ -941,7 +952,7 @@ const PatientDashboard = ({ username, onLogout }) => {
                   </button>
                 </div>
               )}
-              
+
               <div className="patient-info">
                 <h4 className="patient-title">Your Information</h4>
                 <div className="patient-card">
@@ -970,7 +981,7 @@ const PatientDashboard = ({ username, onLogout }) => {
                   </div>
                 </div>
               </div>
-              
+
               <div className="dashboard-card full-width">
                 <h3>Upload Guidelines</h3>
                 <div className="guidelines-content">
@@ -1002,7 +1013,7 @@ const PatientDashboard = ({ username, onLogout }) => {
               </div>
             </>
           )}
-          
+
           {activeTab === 'history' && (
             <>
               <div className="page-subheader">
@@ -1137,13 +1148,13 @@ const PatientDashboard = ({ username, onLogout }) => {
               )}
             </>
           )}
-          
+
           {activeTab === 'contact' && (
             <>
               <div className="page-subheader">
                 <p>Reach out to your healthcare providers with any questions or concerns.</p>
               </div>
-              
+
               <div className="contact-grid">
                 <div className="contact-card">
                   <div className="contact-header">
@@ -1180,7 +1191,7 @@ const PatientDashboard = ({ username, onLogout }) => {
                     ))}
                   </div>
                 </div>
-                
+
                 <div className="message-card">
                   <div className="message-header">
                     <h3>Send a Message</h3>
@@ -1246,7 +1257,7 @@ const PatientDashboard = ({ username, onLogout }) => {
                   </form>
                 </div>
               </div>
-              
+
               <div className="dashboard-card full-width">
                 <h3>Message History</h3>
                 <div className="message-history">
@@ -1286,7 +1297,7 @@ const PatientDashboard = ({ username, onLogout }) => {
           )}
         </div>
       </main>
-      
+
       {/* Appointment Booking Modal */}
       {showAppointmentModal && selectedDoctor && (
         <div className="modal-overlay">
@@ -1392,7 +1403,7 @@ const PatientDashboard = ({ username, onLogout }) => {
                 <X className="icon-sm" />
               </button>
             </div>
-            
+
             {uploadSuccess ? (
               <div className="success-message">
                 <CheckCircle className="success-icon" />
@@ -1409,17 +1420,17 @@ const PatientDashboard = ({ username, onLogout }) => {
                   <input type="file" id="file-upload" className="hidden-input" />
                   <p className="upload-formats">Accepted formats: DICOM, NIFTI, JPEG, PNG</p>
                 </div>
-                
+
                 <div className="form-group">
                   <label htmlFor="scan-name">Scan Name</label>
                   <input type="text" id="scan-name" name="scan-name" placeholder="e.g., Chest CT Scan - May 2025" />
                 </div>
-                
+
                 <div className="form-group">
                   <label htmlFor="scan-notes">Notes (Optional)</label>
                   <textarea id="scan-notes" name="scan-notes" rows="3" placeholder="Add any notes about this scan..."></textarea>
                 </div>
-                
+
                 <div className="modal-actions">
                   <button type="button" className="cancel-button" onClick={() => setShowUploadModal(false)}>Cancel</button>
                   <button type="submit" className="upload-button">Upload Scan</button>
