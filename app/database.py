@@ -601,15 +601,24 @@ def get_scan_image(scan_id: str, image_type: str = 'annotated') -> Optional[byte
         """
         cursor.execute(query, (scan_id,))
         result = cursor.fetchone()
-        
+
+        logger.warning(f"🔍 DB Query for {scan_id} ({image_type}): result={'Found' if result else 'None'}, has_data={result[0] is not None if result else False}")
+
         if result and result[0]:
             # BYTEA is returned as memoryview or bytes
             image_data = result[0]
             if isinstance(image_data, memoryview):
-                return bytes(image_data)
+                image_bytes = bytes(image_data)
+                logger.warning(f"✅ Converted memoryview to {len(image_bytes)} bytes for {scan_id}")
+                return image_bytes
             elif isinstance(image_data, bytes):
+                logger.warning(f"✅ Returning {len(image_data)} bytes for {scan_id}")
                 return image_data
-        
+            else:
+                logger.warning(f"⚠️ Unexpected type {type(image_data)} for {scan_id}")
+                return None
+
+        logger.warning(f"⚠️ No image data found in DB for {scan_id} ({image_type})")
         return None
 
 
