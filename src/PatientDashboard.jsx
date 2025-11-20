@@ -32,6 +32,7 @@ import ScanCommentThread from './components/ScanCommentThread';
 import ScanCommentForm from './components/ScanCommentForm';
 import {
   getCurrentPatientProfile,
+  getCurrentSession,
   getAllScans,
   getScansByPatientId,
   saveScan,
