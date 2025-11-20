@@ -3,7 +3,7 @@ Scans Router for PneumAI
 CT Scan upload, analysis, and comment management
 """
 
-from fastapi import APIRouter, File, UploadFile, HTTPException, Form, Request
+from fastapi import APIRouter, File, UploadFile, HTTPException, Form, Request, Depends, Header
 from fastapi.responses import Response
 from typing import Optional, List
 from datetime import datetime
@@ -37,10 +37,19 @@ from app.utils.helpers import generate_scan_id, format_file_size
 from app.utils.security import sanitize_filename
 from app.config import settings
 from app.routers.websocket import broadcast_scan_analysis_complete, broadcast_scan_upload
+from app.routers.auth import active_sessions
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+async def get_current_user(authorization: Optional[str] = Header(None)):
+    if not authorization:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    token = authorization.replace("Bearer ", "").strip()
+    if token not in active_sessions:
+        raise HTTPException(status_code=401, detail="Invalid or expired session")
+    return active_sessions[token]
 
 
 @router.post("/analyze", response_model=ScanResponse)
@@ -204,12 +213,20 @@ async def get_scan_by_id(scan_id: str, request: Request):
 
 
 @router.get("/patient/{patient_id}/scans")
-async def get_scans_for_patient(patient_id: str):
+async def get_scans_for_patient(patient_id: str, current_user: dict = Depends(get_current_user)):
     """
     Get all scans for a patient
-
+    
     Returns list of scan summaries
     """
+    # Check authorization
+    if current_user['role'] == 'patient':
+        # Ensure patient is viewing their own scans
+        if str(current_user['user_id']) != str(patient_id):
+             raise HTTPException(status_code=403, detail="Not authorized to view these scans")
+    elif current_user['role'] not in ['doctor', 'admin']:
+        raise HTTPException(status_code=403, detail="Not authorized")
+
     try:
         scans = get_patient_scans(patient_id)
         return {"scans": scans, "count": len(scans)}
@@ -219,12 +236,15 @@ async def get_scans_for_patient(patient_id: str):
 
 
 @router.get("")
-async def get_all_scans_endpoint():
+async def get_all_scans_endpoint(current_user: dict = Depends(get_current_user)):
     """
     Get all scans (for doctors/admins)
     
     Returns list of scan summaries
     """
+    if current_user['role'] not in ['doctor', 'admin']:
+        raise HTTPException(status_code=403, detail="Not authorized to view all scans")
+
     try:
         scans = get_all_scans()
         return {"scans": scans, "count": len(scans)}

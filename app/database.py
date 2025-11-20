@@ -11,6 +11,8 @@ from contextlib import contextmanager
 from typing import Optional, Dict, List, Any
 from datetime import date, datetime, time
 import logging
+import time as time_module
+import random
 
 from app.config import settings
 
@@ -49,6 +51,7 @@ class Database:
     def get_connection(cls):
         """
         Get a connection from the pool (context manager)
+        Includes retry logic for transient failures.
 
         Usage:
             with Database.get_connection() as conn:
@@ -59,18 +62,38 @@ class Database:
             raise Exception("Database pool not initialized. Call Database.initialize() first.")
 
         conn = None
-        try:
-            conn = cls._pool.getconn()
-            yield conn
-            conn.commit()  # Auto-commit on success
-        except Exception as e:
-            if conn:
-                conn.rollback()  # Rollback on error
-            logger.error(f"Database error: {e}")
-            raise
-        finally:
-            if conn:
-                cls._pool.putconn(conn)
+        max_retries = 3
+        retry_delay = 0.5
+
+        for attempt in range(max_retries):
+            try:
+                conn = cls._pool.getconn()
+                yield conn
+                conn.commit()  # Auto-commit on success
+                break # Success, exit loop
+            except OperationalError as e:
+                if conn:
+                    try:
+                        conn.rollback()
+                        cls._pool.putconn(conn) 
+                        conn = None 
+                    except:
+                        pass
+                
+                logger.warning(f"⚠️ Database connection error (attempt {attempt+1}/{max_retries}): {e}")
+                if attempt < max_retries - 1:
+                    time_module.sleep(retry_delay)
+                else:
+                    logger.error(f"❌ Database operation failed after {max_retries} retries")
+                    raise
+            except Exception as e:
+                if conn:
+                    conn.rollback()
+                logger.error(f"Database error: {e}")
+                raise
+            finally:
+                if conn:
+                    cls._pool.putconn(conn)
 
     @classmethod
     def execute(cls, query: str, params: tuple = None, fetch: str = "all") -> Optional[List[Dict]]:
@@ -505,8 +528,8 @@ def get_patient_scans(patient_id: str) -> List[Dict]:
 def get_all_scans() -> List[Dict]:
     """Get all scans (for doctor/admin)"""
     query = """
-        SELECT id, patient_id, upload_time, status, risk_level, confidence, detected
-        FROM scans
+        SELECT scan_id as id, patient_id, upload_time, status, risk_level, ai_confidence_score as confidence, nodules_detected as detected
+        FROM ct_scans
         ORDER BY upload_time DESC
     """
     return Database.execute(query, fetch="all")
@@ -514,6 +537,10 @@ def get_all_scans() -> List[Dict]:
 
 def delete_scan(scan_id: str) -> bool:
     """Delete a scan (cascade deletes comments)"""
+    # Manually delete comments first to ensure cascade if DB constraint is missing
+    comment_query = "DELETE FROM scan_comments WHERE scan_id = %s"
+    Database.execute(comment_query, (scan_id,), fetch="none")
+    
     query = "DELETE FROM ct_scans WHERE scan_id = %s"
     Database.execute(query, (scan_id,), fetch="none")
     return True
@@ -525,9 +552,15 @@ def delete_scan(scan_id: str) -> bool:
 
 def create_scan_comment(comment_data: Dict) -> Dict:
     """Create a new scan comment"""
+    # Generate a random comment_id if needed by the schema
+    comment_id = int(time_module.time() * 1000) + random.randint(0, 1000)
+    
+    if 'comment_id' not in comment_data:
+        comment_data['comment_id'] = comment_id
+
     query = """
-        INSERT INTO scan_comments (scan_id, user_id, user_role, user_name, comment_text, parent_comment_id)
-        VALUES (%(scan_id)s, %(user_id)s, %(user_role)s, %(user_name)s, %(comment_text)s, %(parent_comment_id)s)
+        INSERT INTO scan_comments (comment_id, scan_id, user_id, user_role, user_name, comment_text, parent_comment_id)
+        VALUES (%(comment_id)s, %(scan_id)s, %(user_id)s, %(user_role)s, %(user_name)s, %(comment_text)s, %(parent_comment_id)s)
         RETURNING *
     """
     Database.execute(query, comment_data, fetch="none")
@@ -535,8 +568,7 @@ def create_scan_comment(comment_data: Dict) -> Dict:
     # Return the created comment
     get_query = """
         SELECT * FROM scan_comments
-        WHERE scan_id = %(scan_id)s AND user_id = %(user_id)s
-        ORDER BY created_at DESC LIMIT 1
+        WHERE comment_id = %(comment_id)s
     """
     return Database.execute(get_query, comment_data, fetch="one")
 
@@ -590,18 +622,19 @@ def create_appointment(appointment_data: Dict) -> Dict:
     """Create a new appointment"""
     query = """
         INSERT INTO appointments (
-            id, patient_id, doctor_id, doctor_name,
+            patient_id, doctor_id, doctor_name,
             appointment_date, appointment_time, type, status, notes
         ) VALUES (
-            %(id)s, %(patientId)s, %(doctorId)s, %(doctorName)s,
+            %(patientId)s, %(doctorId)s, %(doctorName)s,
             %(date)s, %(time)s, %(type)s, %(status)s, %(notes)s
         ) RETURNING *
     """
-    Database.execute(query, appointment_data, fetch="none")
-
-    get_query = "SELECT * FROM appointments WHERE id = %s"
-    row = Database.execute(get_query, (appointment_data['id'],), fetch="one")
-    return _map_appointment_fields(row)
+    
+    with Database.get_connection() as conn:
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        cursor.execute(query, appointment_data)
+        row = cursor.fetchone()
+        return _map_appointment_fields(dict(row))
 
 
 def get_patient_appointments(patient_id: str) -> List[Dict]:
@@ -673,17 +706,19 @@ def create_message(message_data: Dict) -> Dict:
     """Create a new message"""
     query = """
         INSERT INTO messages (
-            id, sender_id, sender_name, sender_role,
+            sender_id, sender_name, sender_role,
             receiver_id, receiver_name, content
         ) VALUES (
-            %(id)s, %(senderId)s, %(senderName)s, %(senderRole)s,
+            %(senderId)s, %(senderName)s, %(senderRole)s,
             %(receiverId)s, %(receiverName)s, %(content)s
         ) RETURNING *
     """
-    Database.execute(query, message_data, fetch="none")
-
-    get_query = "SELECT * FROM messages WHERE id = %s"
-    return Database.execute(get_query, (message_data['id'],), fetch="one")
+    
+    with Database.get_connection() as conn:
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        cursor.execute(query, message_data)
+        row = cursor.fetchone()
+        return dict(row)
 
 
 def get_user_messages(user_id: str) -> List[Dict]:

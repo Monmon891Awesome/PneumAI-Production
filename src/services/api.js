@@ -11,7 +11,10 @@ const API_BASE_URL = process.env.REACT_APP_API_URL || '';
 const handleResponse = async (response) => {
     if (!response.ok) {
         const error = await response.json().catch(() => ({ message: 'Network error' }));
-        throw new Error(error.detail || error.message || 'Request failed');
+        const errorMessage = typeof error.detail === 'object'
+            ? JSON.stringify(error.detail)
+            : (error.detail || error.message || 'Request failed');
+        throw new Error(errorMessage);
     }
     return response.json();
 };
