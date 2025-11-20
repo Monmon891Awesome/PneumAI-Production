@@ -44,6 +44,24 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+def get_base_url(request: Request) -> str:
+    """
+    Get base URL for image URLs, forcing HTTPS in production
+
+    Railway and other reverse proxies may forward HTTP internally even when
+    the external connection is HTTPS. This function ensures we return HTTPS URLs.
+    """
+    if not request:
+        return f"http://localhost:{settings.PORT}"
+
+    base_url = str(request.base_url).rstrip('/')
+
+    # Force HTTPS in production (when not localhost)
+    if settings.ENVIRONMENT == "production" and base_url.startswith("http://"):
+        base_url = base_url.replace("http://", "https://", 1)
+
+    return base_url
+
 async def get_current_user(authorization: Optional[str] = Header(None)):
     if not authorization:
         raise HTTPException(status_code=401, detail="Not authenticated")
@@ -173,8 +191,8 @@ async def analyze_scan(
         })
 
         # Construct response with image URLs (now served from database)
-        base_url = str(request.base_url).rstrip('/') if request else f"http://localhost:{settings.PORT}"
-        
+        base_url = get_base_url(request)
+
         # Use new database-backed image endpoints
         image_url = f"{base_url}/api/v1/scans/image/{scan_id}/original"
         annotated_image_url = f"{base_url}/api/v1/scans/image/{scan_id}/annotated"
@@ -225,8 +243,7 @@ async def get_scan_by_id(scan_id: str, request: Request):
             raise HTTPException(status_code=404, detail=f"Scan not found: {scan_id}")
 
         # Add image URLs
-        # Add image URLs
-        base_url = str(request.base_url).rstrip('/')
+        base_url = get_base_url(request)
         image_urls = file_manager.get_scan_image_urls(scan_id, base_url)
 
         scan['results']['imageUrl'] = image_urls['imageUrl']
@@ -261,7 +278,7 @@ async def get_scans_for_patient(
         raise HTTPException(status_code=403, detail="Not authorized")
 
     try:
-        base_url = str(request.base_url).rstrip('/')
+        base_url = get_base_url(request)
         scans = get_patient_scans(patient_id, base_url)
         return {"scans": scans, "count": len(scans)}
     except Exception as e:
@@ -283,7 +300,7 @@ async def get_all_scans_endpoint(
         raise HTTPException(status_code=403, detail="Not authorized to view all scans")
 
     try:
-        base_url = str(request.base_url).rstrip('/')
+        base_url = get_base_url(request)
         scans = get_all_scans(base_url)
         return {"scans": scans, "count": len(scans)}
     except Exception as e:
