@@ -111,12 +111,19 @@ const PatientDashboard = ({ username, onLogout }) => {
         // Update profile state
         setPatientProfile(profile);
 
+        // Get actual patient_id from session (this is the database ID)
+        const session = getCurrentSession();
+        const patientId = session?.user_id || session?.userId || profile.id;
+
+        console.log('Loading scans for patient ID:', patientId);
+
         // Load scan history from API
         try {
-          const response = await scanAPI.getByPatient(profile.id);
+          const response = await scanAPI.getByPatient(patientId);
           // Assuming response structure matches what we need or is { scans: [...] }
           // Adjust based on actual API response. For now assuming array or { scans: [] }
           const history = Array.isArray(response) ? response : (response.scans || []);
+          console.log('Loaded scans from API:', history);
           setScanHistory(history);
 
           if (history.length > 0) {

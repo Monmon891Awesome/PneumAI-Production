@@ -115,9 +115,10 @@ async def login(credentials: LoginRequest):
             # Generate session token
             session_token = generate_session_token()
 
-            # Store session
+            # Store session with patient_id for easy access
             active_sessions[session_token] = {
                 "user_id": patient['id'],
+                "patient_id": patient['id'],  # Add explicit patient_id
                 "name": patient['name'],
                 "email": patient['email'],
                 "role": "patient"
