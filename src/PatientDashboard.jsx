@@ -50,7 +50,7 @@ import {
   savePatientProfile,
   getScanCommentCount
 } from './utils/unifiedDataManager';
-import { scanAPI } from './services/apiService';
+import { scanAPI, doctorAPI } from './services/apiService';
 
 const PatientDashboard = ({ username, onLogout }) => {
   const [activeTab, setActiveTab] = useState('home');
@@ -151,13 +151,23 @@ const PatientDashboard = ({ username, onLogout }) => {
 
   // Periodically refresh doctors list to show newly added doctors
   useEffect(() => {
-    const refreshDoctors = () => {
-      const updatedDoctors = getAllDoctors();
-      setDoctors(updatedDoctors);
+    const refreshDoctors = async () => {
+      try {
+        const response = await doctorAPI.getAll();
+        // Handle both array and object response formats
+        const updatedDoctors = Array.isArray(response) ? response : (response.doctors || []);
+        setDoctors(updatedDoctors);
+      } catch (error) {
+        console.error("Failed to fetch doctors:", error);
+        // Fallback to local storage if API fails
+        setDoctors(getAllDoctors());
+      }
     };
 
-    // Refresh every 5 seconds
-    const interval = setInterval(refreshDoctors, 5000);
+    refreshDoctors(); // Initial load
+
+    // Refresh every 30 seconds (less frequent than 5s to avoid API spam)
+    const interval = setInterval(refreshDoctors, 30000);
 
     return () => clearInterval(interval);
   }, []);

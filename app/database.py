@@ -276,13 +276,24 @@ def delete_patient(patient_id: str) -> bool:
 def get_all_doctors() -> List[Dict]:
     """Get all doctors"""
     query = """
-        SELECT d.id, CONCAT(d.first_name, ' ', d.last_name) as name, u.email, 
-               d.phone, d.specialty as specialization, d.license_number, d.created_at
+        SELECT 
+            d.id, d.user_id, d.first_name, d.last_name, d.specialty, d.license_number, d.phone,
+            d.availability, d.years_of_experience, d.bio, d.profile_image_url, 
+            d.is_accepting_patients, d.is_verified,
+            u.email, u.is_active
         FROM doctors d
         JOIN users u ON d.user_id = u.id
-        ORDER BY d.last_name
+        ORDER BY d.last_name, d.first_name
     """
-    return Database.execute(query, fetch="all")
+    doctors = Database.execute(query, fetch="all")
+    
+    # Format names and map fields for frontend
+    for doc in doctors:
+        doc['name'] = f"{doc['first_name']} {doc['last_name']}"
+        doc['image'] = doc['profile_image_url'] # Map for frontend
+        doc['specialization'] = doc['specialty'] # Map for frontend
+        
+    return doctors
 
 
 def get_doctor(doctor_id: str) -> Optional[Dict]:
@@ -341,8 +352,16 @@ def create_doctor(doctor_data: Dict) -> Dict:
 
         # 2. Insert Doctor
         doctor_query = """
-            INSERT INTO doctors (user_id, first_name, last_name, phone, specialty, license_number)
-            VALUES (%(user_id)s, %(first_name)s, %(last_name)s, %(phone)s, %(specialization)s, %(licenseNumber)s)
+            INSERT INTO doctors (
+                user_id, first_name, last_name, phone, specialty, license_number,
+                availability, years_of_experience, bio, profile_image_url, 
+                is_accepting_patients, is_verified
+            )
+            VALUES (
+                %(user_id)s, %(first_name)s, %(last_name)s, %(phone)s, %(specialty)s, %(licenseNumber)s,
+                %(availability)s, %(years_of_experience)s, %(bio)s, %(profile_image_url)s,
+                %(is_accepting_patients)s, %(is_verified)s
+            )
             RETURNING *
         """
         cursor.execute(doctor_query, {
@@ -350,18 +369,52 @@ def create_doctor(doctor_data: Dict) -> Dict:
             'first_name': first_name,
             'last_name': last_name,
             'phone': doctor_data.get('phone'),
-            'specialization': doctor_data.get('specialization'),
-            'licenseNumber': doctor_data.get('licenseNumber')
+            'specialty': doctor_data.get('specialty'),
+            'licenseNumber': doctor_data.get('licenseNumber'),
+            'availability': doctor_data.get('availability'),
+            'years_of_experience': doctor_data.get('years_of_experience'),
+            'bio': doctor_data.get('bio'),
+            'profile_image_url': doctor_data.get('profile_image_url'),
+            'is_accepting_patients': doctor_data.get('is_accepting_patients', True),
+            'is_verified': doctor_data.get('is_verified', False)
         })
         doctor = cursor.fetchone()
         
         # Add user fields to result
         doctor['email'] = doctor_data['email']
         doctor['name'] = full_name
-        doctor['specialization'] = doctor['specialty'] # Map back to schema field
         
         # Serialize dates
         return Database._serialize_row(dict(doctor))
+
+def delete_doctor(doctor_id: str) -> bool:
+    """Delete a doctor and their associated user account"""
+    try:
+        did = int(doctor_id)
+        with Database.get_connection() as conn:
+            cursor = conn.cursor()
+            
+            # Get user_id first
+            cursor.execute("SELECT user_id FROM doctors WHERE id = %s", (did,))
+            result = cursor.fetchone()
+            
+            if not result:
+                return False
+                
+            user_id = result[0]
+            
+            # Delete doctor record (cascade should handle user, but let's be safe)
+            cursor.execute("DELETE FROM doctors WHERE id = %s", (did,))
+            
+            # Delete user record
+            cursor.execute("DELETE FROM users WHERE id = %s", (user_id,))
+            
+            return True
+    except ValueError:
+        return False
+    except Exception as e:
+        logger.error(f"Error deleting doctor: {e}")
+        raise
 
 
 # ============================================================
