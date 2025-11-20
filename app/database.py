@@ -446,14 +446,16 @@ def create_scan(scan_data: Dict, detections: List[Dict]) -> str:
             image_width, image_height,
             ai_analysis_result, ai_confidence_score,
             nodules_detected, risk_level,
-            annotated_image_url, metadata
+            annotated_image_url, metadata,
+            original_image_data, annotated_image_data, file_hash
         ) VALUES (
             %(scanId)s, %(patientId)s, %(status)s, %(uploadTime)s,
             %(originalPath)s, %(fileName)s, %(fileSize)s, %(format)s,
             %(width)s, %(height)s,
             %(aiAnalysisResult)s, %(confidence)s,
             %(detected)s, %(riskLevel)s,
-            %(annotatedPath)s, %(metadata)s
+            %(annotatedPath)s, %(metadata)s,
+            %(originalImageData)s, %(annotatedImageData)s, %(fileHash)s
         )
     """
 
@@ -475,7 +477,10 @@ def create_scan(scan_data: Dict, detections: List[Dict]) -> str:
         'detected': scan_data['results']['detected'],
         'riskLevel': scan_data['results']['riskLevel'],
         'annotatedPath': scan_data.get('annotatedPath', ''),
-        'metadata': json.dumps(metadata)
+        'metadata': json.dumps(metadata),
+        'originalImageData': scan_data.get('originalImageData'),  # Binary data
+        'annotatedImageData': scan_data.get('annotatedImageData'),  # Binary data
+        'fileHash': scan_data.get('fileHash')  # SHA-256 hash
     }
     
     # Handle patient_id - if 'unknown' or None, insert NULL
@@ -559,6 +564,39 @@ def get_scan(scan_id: str) -> Optional[Dict]:
         'originalImagePath': scan.get('file_url'),
         'annotatedImagePath': scan.get('annotated_image_url')
     }
+
+
+def get_scan_image(scan_id: str, image_type: str = 'annotated') -> Optional[bytes]:
+    """
+    Get scan image data from database
+    
+    Args:
+        scan_id: Scan ID
+        image_type: 'original', 'annotated', or 'thumbnail'
+    
+    Returns:
+        Image bytes or None if not found
+    """
+    column_map = {
+        'original': 'original_image_data',
+        'annotated': 'annotated_image_data',
+        'thumbnail': 'thumbnail_image_data'
+    }
+    
+    column = column_map.get(image_type, 'annotated_image_data')
+    
+    query = f"""
+        SELECT {column}
+        FROM ct_scans
+        WHERE scan_id = %s
+    """
+    
+    result = Database.execute(query, (scan_id,), fetch="one")
+    
+    if result and result.get(column):
+        return bytes(result[column])
+    
+    return None
 
 
 def get_patient_scans(patient_id: str) -> List[Dict]:

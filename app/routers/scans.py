@@ -31,7 +31,8 @@ from app.database import (
     create_scan_comment,
     get_scan_comments,
     update_scan_comment,
-    delete_scan_comment
+    delete_scan_comment,
+    get_scan_image
 )
 from app.utils.helpers import generate_scan_id, format_file_size
 from app.utils.security import sanitize_filename
@@ -96,10 +97,14 @@ async def analyze_scan(
         # Encode original image
         original_image_bytes = image_service.encode_image_to_jpeg(image)
 
+        # Generate file hash for duplicate detection
+        import hashlib
+        file_hash = hashlib.sha256(original_image_bytes).hexdigest()
+
         # Generate scan ID
         scan_id = generate_scan_id()
 
-        # Save both images to filesystem
+        # Save both images to filesystem (for backward compatibility)
         original_path, annotated_path = file_manager.save_scan_images(
             scan_id,
             original_image_bytes,
@@ -109,7 +114,7 @@ async def analyze_scan(
         # Calculate processing time
         processing_time = (datetime.utcnow() - start_time).total_seconds()
 
-        # Prepare scan data for database
+        # Prepare scan data for database (including binary image data)
         scan_data = {
             'scanId': scan_id,
             'patientId': patientId or 'unknown',
@@ -128,7 +133,11 @@ async def analyze_scan(
                 'imageSize': results['imageSize']
             },
             'originalPath': original_path,
-            'annotatedPath': annotated_path
+            'annotatedPath': annotated_path,
+            # Store binary image data in database
+            'originalImageData': original_image_bytes,
+            'annotatedImageData': annotated_image_bytes,
+            'fileHash': file_hash
         }
 
         # Save to database
@@ -145,10 +154,12 @@ async def analyze_scan(
             "confidence": results['confidence']
         })
 
-        # Construct response with image URLs
-        # Construct response with image URLs
+        # Construct response with image URLs (now served from database)
         base_url = str(request.base_url).rstrip('/') if request else f"http://localhost:{settings.PORT}"
-        image_urls = file_manager.get_scan_image_urls(scan_id, base_url)
+        
+        # Use new database-backed image endpoints
+        image_url = f"{base_url}/api/v1/scans/image/{scan_id}/original"
+        annotated_image_url = f"{base_url}/api/v1/scans/image/{scan_id}/annotated"
 
         return ScanResponse(
             scanId=scan_id,
@@ -163,8 +174,8 @@ async def analyze_scan(
                 riskLevel=results['riskLevel'],
                 detections=results['detections'],
                 imageSize=ImageSize(**results['imageSize']),
-                imageUrl=image_urls['imageUrl'],
-                annotatedImageUrl=image_urls['annotatedImageUrl']
+                imageUrl=image_url,
+                annotatedImageUrl=annotated_image_url
             ),
             metadata=ScanMetadata(
                 fileSize=file_size,
@@ -251,6 +262,46 @@ async def get_all_scans_endpoint(current_user: dict = Depends(get_current_user))
     except Exception as e:
         logger.error(f"Error fetching all scans: {e}")
         raise HTTPException(status_code=500, detail="Failed to fetch scans")
+
+
+@router.get("/image/{scan_id}/{image_type}")
+async def get_scan_image_endpoint(
+    scan_id: str,
+    image_type: str = "annotated",
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Get scan image from database
+    
+    Args:
+        scan_id: Scan ID
+        image_type: 'original', 'annotated', or 'thumbnail'
+    
+    Returns:
+        Image bytes with appropriate content type
+    """
+    if image_type not in ['original', 'annotated', 'thumbnail']:
+        raise HTTPException(status_code=400, detail="Invalid image type")
+    
+    try:
+        image_data = get_scan_image(scan_id, image_type)
+        
+        if not image_data:
+            raise HTTPException(status_code=404, detail=f"Image not found for scan {scan_id}")
+        
+        return Response(
+            content=image_data,
+            media_type="image/jpeg",
+            headers={
+                "Cache-Control": "public, max-age=3600",
+                "Content-Disposition": f"inline; filename={scan_id}_{image_type}.jpg"
+            }
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error retrieving image for scan {scan_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to retrieve image")
 
 
 @router.delete("/{scan_id}", response_model=MessageOnlyResponse)
