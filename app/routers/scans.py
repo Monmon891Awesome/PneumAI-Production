@@ -36,6 +36,7 @@ from app.database import (
 from app.utils.helpers import generate_scan_id, format_file_size
 from app.utils.security import sanitize_filename
 from app.config import settings
+from app.routers.websocket import broadcast_scan_analysis_complete, broadcast_scan_upload
 
 logger = logging.getLogger(__name__)
 
@@ -125,6 +126,15 @@ async def analyze_scan(
         create_scan(scan_data, results['detections'])
 
         logger.info(f"✅ Scan completed: {scan_id} - Risk: {results['riskLevel']} ({processing_time:.2f}s)")
+
+        # Broadcast scan completion to WebSocket clients
+        await broadcast_scan_analysis_complete({
+            "scanId": scan_id,
+            "patientId": patientId,
+            "riskLevel": results['riskLevel'],
+            "detected": results['detected'],
+            "confidence": results['confidence']
+        })
 
         # Construct response with image URLs
         # Construct response with image URLs
@@ -281,6 +291,9 @@ async def add_comment_to_scan(scan_id: str, comment: CommentCreate):
         }
 
         created_comment = create_scan_comment(comment_data)
+
+        # Broadcast comment addition to WebSocket clients
+        await broadcast_scan_comment(scan_id, created_comment)
 
         logger.info(f"✅ Comment added to scan {scan_id} by {comment.user_name}")
 
