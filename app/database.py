@@ -482,10 +482,15 @@ def create_scan(scan_data: Dict, detections: List[Dict]) -> str:
         'annotatedImageData': scan_data.get('annotatedImageData'),  # Binary data
         'fileHash': scan_data.get('fileHash')  # SHA-256 hash
     }
-    
+
+    # Log image data sizes for debugging
+    original_size = len(params['originalImageData']) if params['originalImageData'] else 0
+    annotated_size = len(params['annotatedImageData']) if params['annotatedImageData'] else 0
+    logger.info(f"💾 Saving scan images to DB - Original: {original_size} bytes, Annotated: {annotated_size} bytes")
+
     # Handle patient_id - if 'unknown' or None, insert NULL
     if scan_data.get('patientId') and scan_data.get('patientId') != 'unknown':
-        # Verify patient exists first? Or let FK fail? 
+        # Verify patient exists first? Or let FK fail?
         # For now, if it's a valid integer string, use it, else None
         try:
             params['patientId'] = int(scan_data['patientId'])
@@ -495,6 +500,7 @@ def create_scan(scan_data: Dict, detections: List[Dict]) -> str:
         params['patientId'] = None
 
     Database.execute(scan_query, params, fetch="none")
+    logger.info(f"✅ Scan {scan_data['scanId']} saved to database with images")
 
     # Insert detections (if we had a detections table, but schema doesn't seem to have a separate detections table linked to ct_scans in the same way, 
     # wait, schema has NO detections table! It puts results in ai_analysis_result JSONB)
