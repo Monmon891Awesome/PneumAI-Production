@@ -57,17 +57,35 @@ async def get_current_user(authorization: Optional[str] = Header(None)):
 async def analyze_scan(
     scan: UploadFile = File(...),
     patientId: Optional[str] = Form(None),
-    request: Request = None
+    request: Request = None,
+    current_user: dict = Depends(get_current_user)
 ):
     """
     Upload and analyze CT scan image with YOLOv12
 
     Supports: DICOM (.dcm), JPEG, PNG
     Returns: Detection results, annotated image URLs
+    
+    Authentication required. Patient ID is automatically determined from session.
     """
     try:
         # Record start time
         start_time = datetime.utcnow()
+        
+        # Determine patient ID from authenticated user
+        # If user is a patient, use their patient_id
+        # If user is a doctor/admin uploading on behalf of a patient, use the provided patientId
+        actual_patient_id = None
+        
+        if current_user['role'] == 'patient':
+            # Patient uploading their own scan
+            actual_patient_id = str(current_user.get('patient_id') or current_user.get('user_id'))
+        elif current_user['role'] in ['doctor', 'admin']:
+            # Doctor/admin uploading for a patient
+            if patientId and patientId != 'unknown':
+                actual_patient_id = patientId
+        
+        logger.info(f"📤 Processing scan for patient: {actual_patient_id} (uploaded by {current_user['role']})")
 
         # Validate file size
         contents = await scan.read()
@@ -117,7 +135,7 @@ async def analyze_scan(
         # Prepare scan data for database (including binary image data)
         scan_data = {
             'scanId': scan_id,
-            'patientId': patientId or 'unknown',
+            'patientId': actual_patient_id,  # Use authenticated patient ID
             'status': 'completed',
             'uploadTime': start_time.isoformat(),
             'processingTime': processing_time,
@@ -148,7 +166,7 @@ async def analyze_scan(
         # Broadcast scan completion to WebSocket clients
         await broadcast_scan_analysis_complete({
             "scanId": scan_id,
-            "patientId": patientId,
+            "patientId": actual_patient_id,
             "riskLevel": results['riskLevel'],
             "detected": results['detected'],
             "confidence": results['confidence']
@@ -163,7 +181,7 @@ async def analyze_scan(
 
         return ScanResponse(
             scanId=scan_id,
-            patientId=patientId,
+            patientId=actual_patient_id,  # Use authenticated patient ID
             status='completed',
             uploadTime=start_time,
             processingTime=processing_time,
