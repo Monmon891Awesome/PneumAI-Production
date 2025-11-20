@@ -328,13 +328,16 @@ async def get_scan_image_endpoint(
     """
     if image_type not in ['original', 'annotated', 'thumbnail']:
         raise HTTPException(status_code=400, detail="Invalid image type")
-    
+
     try:
+        logger.info(f"📷 Retrieving {image_type} image for scan {scan_id}")
         image_data = get_scan_image(scan_id, image_type)
-        
+
         if not image_data:
+            logger.warning(f"⚠️ Image not found in database: {scan_id} ({image_type})")
             raise HTTPException(status_code=404, detail=f"Image not found for scan {scan_id}")
-        
+
+        logger.info(f"✅ Retrieved {len(image_data)} bytes for {scan_id} ({image_type})")
         return Response(
             content=image_data,
             media_type="image/jpeg",
@@ -346,7 +349,9 @@ async def get_scan_image_endpoint(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error retrieving image for scan {scan_id}: {e}")
+        logger.error(f"❌ Error retrieving image for scan {scan_id}: {e}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail="Failed to retrieve image")
 
 
