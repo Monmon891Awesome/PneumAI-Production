@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Layers, Shield, UserPlus, Users, CheckCircle, ArrowRight, Lock, Mail, User } from 'lucide-react';
 import './Login.css';
 import { authenticateUser, createSession } from './utils/unifiedDataManager';
+import { api } from './services/api';
 
 const Login = ({ onClose, onLogin, onRegister }) => {
   const [activeTab, setActiveTab] = useState('patient');
@@ -51,9 +52,6 @@ const Login = ({ onClose, onLogin, onRegister }) => {
     }
 
     try {
-      // Import API
-      const { api } = require('./services/api');
-
       // Authenticate using backend API
       const response = await api.login(formData.email, formData.password, activeTab);
 
