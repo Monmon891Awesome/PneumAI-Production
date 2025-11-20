@@ -585,24 +585,39 @@ def get_scan_image(scan_id: str, image_type: str = 'annotated') -> Optional[byte
     
     column = column_map.get(image_type, 'annotated_image_data')
     
-    query = f"""
-        SELECT {column}
-        FROM ct_scans
-        WHERE scan_id = %s
-    """
-    
-    result = Database.execute(query, (scan_id,), fetch="one")
-    
-    if result and result.get(column):
-        return bytes(result[column])
-    
-    return None
+    # Use direct connection to avoid serialization issues with BYTEA
+    with Database.get_connection() as conn:
+        cursor = conn.cursor()
+        query = f"""
+            SELECT {column}
+            FROM ct_scans
+            WHERE scan_id = %s
+        """
+        cursor.execute(query, (scan_id,))
+        result = cursor.fetchone()
+        
+        if result and result[0]:
+            # BYTEA is returned as memoryview or bytes
+            image_data = result[0]
+            if isinstance(image_data, memoryview):
+                return bytes(image_data)
+            elif isinstance(image_data, bytes):
+                return image_data
+        
+        return None
 
 
-def get_patient_scans(patient_id: str) -> List[Dict]:
-    """Get all scans for a patient"""
+def get_patient_scans(patient_id: str, base_url: str = "") -> List[Dict]:
+    """Get all scans for a patient with image URLs"""
     query = """
-        SELECT scan_id as id, upload_time, status, risk_level, ai_confidence_score as confidence, nodules_detected as detected
+        SELECT 
+            scan_id as id, 
+            upload_time, 
+            status, 
+            risk_level, 
+            ai_confidence_score as confidence, 
+            nodules_detected as detected,
+            scan_id
         FROM ct_scans
         WHERE patient_id = %s
         ORDER BY upload_time DESC
@@ -611,19 +626,52 @@ def get_patient_scans(patient_id: str) -> List[Dict]:
     # If it's a string that parses to int, fine. If not, this might fail or return empty.
     try:
         pid = int(patient_id)
-        return Database.execute(query, (pid,), fetch="all")
+        scans = Database.execute(query, (pid,), fetch="all")
+        
+        # Add image URLs to each scan
+        for scan in scans:
+            scan_id = scan.get('scan_id') or scan.get('id')
+            if base_url:
+                scan['imageUrl'] = f"{base_url}/api/v1/scans/image/{scan_id}/original"
+                scan['annotatedImageUrl'] = f"{base_url}/api/v1/scans/image/{scan_id}/annotated"
+            else:
+                scan['imageUrl'] = f"/api/v1/scans/image/{scan_id}/original"
+                scan['annotatedImageUrl'] = f"/api/v1/scans/image/{scan_id}/annotated"
+        
+        return scans
     except ValueError:
         return []
 
 
-def get_all_scans() -> List[Dict]:
-    """Get all scans (for doctor/admin)"""
+
+def get_all_scans(base_url: str = "") -> List[Dict]:
+    """Get all scans (for doctor/admin) with image URLs"""
     query = """
-        SELECT scan_id as id, patient_id, upload_time, status, risk_level, ai_confidence_score as confidence, nodules_detected as detected
+        SELECT 
+            scan_id as id, 
+            patient_id, 
+            upload_time, 
+            status, 
+            risk_level, 
+            ai_confidence_score as confidence, 
+            nodules_detected as detected,
+            scan_id
         FROM ct_scans
         ORDER BY upload_time DESC
     """
-    return Database.execute(query, fetch="all")
+    scans = Database.execute(query, fetch="all")
+    
+    # Add image URLs to each scan
+    for scan in scans:
+        scan_id = scan.get('scan_id') or scan.get('id')
+        if base_url:
+            scan['imageUrl'] = f"{base_url}/api/v1/scans/image/{scan_id}/original"
+            scan['annotatedImageUrl'] = f"{base_url}/api/v1/scans/image/{scan_id}/annotated"
+        else:
+            scan['imageUrl'] = f"/api/v1/scans/image/{scan_id}/original"
+            scan['annotatedImageUrl'] = f"/api/v1/scans/image/{scan_id}/annotated"
+    
+    return scans
 
 
 def delete_scan(scan_id: str) -> bool:

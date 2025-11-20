@@ -224,11 +224,15 @@ async def get_scan_by_id(scan_id: str, request: Request):
 
 
 @router.get("/patient/{patient_id}/scans")
-async def get_scans_for_patient(patient_id: str, current_user: dict = Depends(get_current_user)):
+async def get_scans_for_patient(
+    patient_id: str, 
+    request: Request,
+    current_user: dict = Depends(get_current_user)
+):
     """
     Get all scans for a patient
     
-    Returns list of scan summaries
+    Returns list of scan summaries with image URLs
     """
     # Check authorization
     if current_user['role'] == 'patient':
@@ -239,7 +243,8 @@ async def get_scans_for_patient(patient_id: str, current_user: dict = Depends(ge
         raise HTTPException(status_code=403, detail="Not authorized")
 
     try:
-        scans = get_patient_scans(patient_id)
+        base_url = str(request.base_url).rstrip('/')
+        scans = get_patient_scans(patient_id, base_url)
         return {"scans": scans, "count": len(scans)}
     except Exception as e:
         logger.error(f"Error fetching scans for patient {patient_id}: {e}")
@@ -247,17 +252,21 @@ async def get_scans_for_patient(patient_id: str, current_user: dict = Depends(ge
 
 
 @router.get("")
-async def get_all_scans_endpoint(current_user: dict = Depends(get_current_user)):
+async def get_all_scans_endpoint(
+    request: Request,
+    current_user: dict = Depends(get_current_user)
+):
     """
     Get all scans (for doctors/admins)
     
-    Returns list of scan summaries
+    Returns list of scan summaries with image URLs
     """
     if current_user['role'] not in ['doctor', 'admin']:
         raise HTTPException(status_code=403, detail="Not authorized to view all scans")
 
     try:
-        scans = get_all_scans()
+        base_url = str(request.base_url).rstrip('/')
+        scans = get_all_scans(base_url)
         return {"scans": scans, "count": len(scans)}
     except Exception as e:
         logger.error(f"Error fetching all scans: {e}")
