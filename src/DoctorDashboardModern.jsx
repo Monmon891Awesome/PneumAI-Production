@@ -30,8 +30,6 @@ import {
     getAllScans,
     getDashboardStats,
     formatDate,
-    getDashboardStats,
-    formatDate,
     getScanCommentCount
 } from './utils/unifiedDataManager';
 import { scanAPI } from './services/apiService';
