@@ -267,11 +267,10 @@ async def get_all_scans_endpoint(current_user: dict = Depends(get_current_user))
 @router.get("/image/{scan_id}/{image_type}")
 async def get_scan_image_endpoint(
     scan_id: str,
-    image_type: str = "annotated",
-    current_user: dict = Depends(get_current_user)
+    image_type: str = "annotated"
 ):
     """
-    Get scan image from database
+    Get scan image from database (public endpoint)
     
     Args:
         scan_id: Scan ID
@@ -279,6 +278,9 @@ async def get_scan_image_endpoint(
     
     Returns:
         Image bytes with appropriate content type
+    
+    Note: This endpoint is public to allow <img> tags to load images.
+    Access control is handled at the scan level, not image level.
     """
     if image_type not in ['original', 'annotated', 'thumbnail']:
         raise HTTPException(status_code=400, detail="Invalid image type")
